@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="flutter_application_2">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <link rel="icon" type="image/png" href="favicon.png" />
+
+  <title>flutter_application_2</title>
+  <link rel="manifest" href="manifest.json">
+
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self' 'unsafe-eval' 'unsafe-inline' blob: data:; 
+             script-src 'self' 'unsafe-eval' 'unsafe-inline' https://www.gstatic.com https://fonts.googleapis.com https://cdn.jsdelivr.net; 
+             style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; 
+             font-src 'self' https://fonts.gstatic.com https://www.gstatic.com; 
+             img-src 'self' data: blob: https://firebasestorage.googleapis.com https://www.gstatic.com https://i.pravatar.cc http://localhost:5000; 
+             connect-src 'self' http://localhost:* ws://localhost:* https://*.firebaseio.com https://*.googleapis.com https://fonts.gstatic.com https://www.gstatic.com https://i.pravatar.cc http://localhost:5000 https://cdn.jsdelivr.net https://storage.googleapis.com;">
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite/dist/tf-tflite.min.js"></script>
+
+  <script>
+    var serviceWorkerVersion = null;
+    var baseHref = document.getElementsByTagName('base')[0].getAttribute('href');
+    var flutterEngineInitialization = {
+      'renderer': 'html',
+    };
+  </script>
+</head>
+
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+
+</html>

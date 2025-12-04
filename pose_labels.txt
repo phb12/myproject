@@ -1,0 +1,11 @@
+bench_press
+crunch
+deadlift
+dumbbell_Biceps_Curl
+lateral_raise
+pull-up
+push_ups
+shoulder_press
+squat
+standing
+triceps_pushdowns

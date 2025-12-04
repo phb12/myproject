@@ -1,0 +1,42 @@
+#-------------------
+# Flutter Standard Ignored Files (Standard Template)
+#-------------------
+
+# Build output
+/build/
+
+# IDE/Dart tool files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.vs/
+.vscode/
+
+# Dependency cache and downloaded packages
+/ios/.symlinks/
+/ios/.generated/
+/android/.gradle
+/android/local.properties
+/android/.idea
+/android/captures
+/android/app/build
+/android/app/.cxx
+/android/app/.externalNativeBuild
+
+# Windows/VS specifics (您原本的內容)
+flutter/ephemeral/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+x64/
+x86/
+*.[Cc]ache
+!*.[Cc]ache/
+
+# Mac specific
+.DS_Store
+
+# Dart Analysis Server (Dart Language Server)
+.analysis_options

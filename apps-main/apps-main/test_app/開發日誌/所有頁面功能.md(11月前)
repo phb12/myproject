@@ -1,0 +1,21 @@
+main.dart: App 總入口，負責主題設定與底部導覽列框架。
+models/exercise_model.dart: 定義訓練動作資料結構與屬性。
+models/workout_log_model.dart: 定義訓練紀錄的資料模型。
+models/user_model.dart: 使用者資料模型，包含 toMap、fromMap、copyWith 方法。
+
+pages/login_page.dart: 使用者登入與註冊頁面，處理身份驗證。
+pages/main_menu_page.dart: 登入後主選單，管理底部五大分頁的切換。
+pages/select_part_page.dart: 選擇訓練部位頁面。
+pages/select_exercise_page.dart: 根據選擇部位，顯示動作列表讓使用者挑選。
+pages/exercise_setup_page.dart: [translate:頁面 開始訓練頁面 ：設定訓練參數（組數、休息時間）。]
+pages/training_session_page.dart: 訓練過程頁面，含時間倒數與組數追蹤。
+pages/training_summary_page.dart: 訓練結束總結頁面，顯示本次訓練成果。
+pages/workout_history_page.dart: 訓練紀錄瀏覽頁面，包含日曆檢視。
+pages/profile_page.dart: 個人資料修改頁面，具備資料讀取與即時計算 BMI/BMR。
+pages/settings_page.dart: 詳細設定頁面，含提醒、音效開關及資料管理功能。
+pages/device_connection_page.dart: 藍牙裝置連線頁面，支援掃描與模擬硬體列表。
+
+services/database_helper.dart: SQLite 服務，負責資料庫建立與 CRUD 操作。
+services/mock_data_service.dart: 假資料服務，提供測試用訓練動作資料。
+services/notification_service.dart: 本地通知服務，支援每日提醒排程。
+services/bluetooth_service.dart: 藍牙服務，模擬掃描與連線行為，未來接真實硬體。
