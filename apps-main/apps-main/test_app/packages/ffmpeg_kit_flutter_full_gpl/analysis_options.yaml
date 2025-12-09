@@ -1,6 +1,6 @@
 analyzer:
-  enable-experiment:
-    - non-nullable
+#   enable-experiment:
+#     - non-nullable
   strong-mode:
     implicit-dynamic: false
   errors:

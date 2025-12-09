@@ -66,7 +66,7 @@ class _TrainingSessionPageState extends State<TrainingSessionPage> with WidgetsB
   Set<int> _problemKeypoints = {};
   bool _showCamera = false;
   int _frameCount = 0;
-  CameraLensDirection _currentLensDirection = CameraLensDirection.front;
+  CameraLensDirection _currentLensDirection = CameraLensDirection.back;
   final RepCounter _repCounter = RepCounter();
   int _currentReps = 0;
   bool _isCounting = false;
@@ -564,6 +564,25 @@ class _TrainingSessionPageState extends State<TrainingSessionPage> with WidgetsB
                                   child: Text(
                                     _debugOverlayText,
                                     style: const TextStyle(color: Colors.white, fontSize: 14),
+                                  ),
+                                ),
+                              ),
+                              // Guidance Text
+                              Positioned(
+                                top: 50,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black45,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: const Text(
+                                      '請確保全身位於畫面中',
+                                      style: TextStyle(color: Colors.white, fontSize: 16),
+                                    ),
                                   ),
                                 ),
                               ),

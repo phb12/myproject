@@ -9,6 +9,20 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
+import 'analyzers/exercise_analyzer.dart';
+import 'analyzers/squat_analyzer.dart';
+import 'analyzers/deadlift_analyzer.dart';
+import 'analyzers/bench_press_analyzer.dart';
+import 'analyzers/push_up_analyzer.dart';
+import 'analyzers/pull_up_analyzer.dart';
+import 'analyzers/shoulder_press_analyzer.dart';
+import 'analyzers/lateral_raise_analyzer.dart';
+import 'analyzers/bicep_curl_analyzer.dart';
+import 'analyzers/tricep_pushdown_analyzer.dart';
+import 'analyzers/crunch_analyzer.dart';
+import 'analyzers/walking_analyzer.dart';
+
+
 // Request object sent to Isolate
 class InferenceRequest {
   final int id;
@@ -74,7 +88,8 @@ class PoseDetectorService {
 
     // Load models in Main Isolate
     try {
-      final movenetData = await rootBundle.load('assets/models/movenet_thunder.tflite');
+      // Switch to Lightning for speed
+      final movenetData = await rootBundle.load('assets/models/movenet_lightning.tflite');
       final movenetBytes = movenetData.buffer.asUint8List();
 
       final classifierData = await rootBundle.load('assets/models/pose_classifier.tflite');
@@ -135,9 +150,13 @@ class PoseDetectorService {
     _isBusy = true;
     final id = _requestIdCounter++;
 
-    final yBytes = Uint8List.fromList(image.planes[0].bytes);
-    final uBytes = Uint8List.fromList(image.planes[1].bytes);
-    final vBytes = Uint8List.fromList(image.planes[2].bytes);
+    // Optimize: Avoid copying if possible. Passing direct bytes view.
+    // NOTE: If camera plugin recycles these buffers too quickly before isolate reads them, 
+    // we might see glitches. If so, revert to fromList (copy).
+    // Testing availability of direct passing.
+    final yBytes = image.planes[0].bytes;
+    final uBytes = image.planes[1].bytes;
+    final vBytes = image.planes[2].bytes;
 
     final request = InferenceRequest(
       id: id,
@@ -232,11 +251,20 @@ class PoseDetectorService {
     
     String? loadingError;
     try {
+      // Enable XNNPACK which is highly optimized for CPU inference on Mobile
       final movenetOptions = InterpreterOptions()..threads = 4;
       
-      // NNAPI and GPU Delegates are not fully supported or performant in this version.
-      // Reverting to optimized CPU execution.
-
+      // Attempt to add XNNPack delegate
+      // Note: If running on emulator x86, this might fail or fallback.
+      // On real devices (ARM), this is critical for speed.
+      try {
+        if (Platform.isAndroid || Platform.isIOS) {
+             movenetOptions.addDelegate(XNNPackDelegate());
+        }
+      } catch (e) {
+        print("Isolate: XNNPackDelegate not supported or failed: $e");
+      }
+      
       // Use fromBuffer instead of fromAsset
       movenetInterpreter = Interpreter.fromBuffer(initData.movenetBytes, options: movenetOptions);
       classifierInterpreter = Interpreter.fromBuffer(initData.classifierBytes);
@@ -277,10 +305,6 @@ class PoseDetectorService {
 
           var tensorData = inputTensor['tensor'];
           
-          // Debug: Print first pixel
-          // var firstPixel = tensorData[0][0][0];
-          // print("Isolate: Input Type: $inputType, First Pixel: $firstPixel");
-
           // Run Inference
           var outputBuffer = List.filled(1 * 1 * 17 * 3, 0.0).reshape([1, 1, 17, 3]);
           movenetInterpreter.run(tensorData, outputBuffer);
@@ -293,8 +317,9 @@ class PoseDetectorService {
 
           double padX = inputTensor['padX'];
           double padY = inputTensor['padY'];
-          double contentWidth = 256.0 - 2 * padX;
-          double contentHeight = 256.0 - 2 * padY;
+          // Lightning is 192x192
+          double contentWidth = 192.0 - 2 * padX;
+          double contentHeight = 192.0 - 2 * padY;
 
           for (var kp in rawKeypoints) {
             double y = kp[0];
@@ -302,8 +327,8 @@ class PoseDetectorService {
             double score = kp[2];
             if (score > maxScore) maxScore = score;
 
-            double yPx = y * 256.0;
-            double xPx = x * 256.0;
+            double yPx = y * 192.0;
+            double xPx = x * 192.0;
             double yContent = yPx - padY;
             double xContent = xPx - padX;
             double yOrig = yContent / contentHeight;
@@ -312,19 +337,17 @@ class PoseDetectorService {
             keypoints.add([yOrig, xOrig, score]); 
           }
           
-          // print("Isolate: Max Score: $maxScore");
-
           var classificationResult = _runClassification(classifierInterpreter, labels, keypoints);
           var analysisResult = _analyzePose(keypoints, classificationResult, message.exerciseName);
 
           var finalResult = <String, dynamic>{
             'keypoints': keypoints,
             'classification': classificationResult,
-            'debug_max_score': maxScore, // Send back for debugging
+            'debug_max_score': maxScore, 
             'debug_input_type': inputType.toString(),
           };
           finalResult.addAll(analysisResult);
-
+          
           initData.sendPort.send(InferenceResponse(id: message.id, result: finalResult));
 
         } catch (e) {
@@ -338,7 +361,7 @@ class PoseDetectorService {
     try {
       if (req.rgbBytes == null) return null;
       
-      const int targetSize = 256;
+      const int targetSize = 192; // Lightning
       final int srcW = req.width;
       final int srcH = req.height;
       
@@ -392,15 +415,17 @@ class PoseDetectorService {
         return null;
       }
 
-      const int targetSize = 256;
+      const int targetSize = 192; // Lightning
       final int srcW = req.width;
       final int srcH = req.height;
       final int rotation = req.rotation;
 
+      // Determine logical dimensions based on rotation
       final bool isRotated90 = rotation == 90 || rotation == 270;
       final int logicalSrcW = isRotated90 ? srcH : srcW;
       final int logicalSrcH = isRotated90 ? srcW : srcH;
 
+      // Calculate Scaling (Letterboxing)
       double scale = min(targetSize / logicalSrcW, targetSize / logicalSrcH);
       int newW = (logicalSrcW * scale).round();
       int newH = (logicalSrcH * scale).round();
@@ -408,90 +433,36 @@ class PoseDetectorService {
       int padX = (targetSize - newW) ~/ 2;
       int padY = (targetSize - newH) ~/ 2;
 
-      // Generate [256, 256, 3] flat buffer
       final int totalPixels = targetSize * targetSize;
       final Uint8List input = Uint8List(totalPixels * 3);
-      // Uint8List is already initialized to 0, so we don't need to fill padding with 0s manually.
-      
+
       final int startY = padY;
       final int endY = padY + newH;
       final int startX = padX;
       final int endX = padX + newW;
 
-      // Pre-calculate reciprocal scale for faster multiplication
       final double invScale = 1.0 / scale;
-
-      for (int y = startY; y < endY; y++) {
-        // Calculate logicalY once per row
-        int logicalY = ((y - padY) * invScale).floor();
-        
-        // Clamp logicalY to be safe
-        if (logicalY < 0) logicalY = 0;
-        if (logicalY >= srcH) logicalY = srcH - 1;
-
-        int pixelIndex = (y * targetSize + startX) * 3;
-
-        for (int x = startX; x < endX; x++) {
-          int logicalX = ((x - padX) * invScale).floor();
-          
-          // Clamp logicalX
-          if (logicalX < 0) logicalX = 0;
-          if (logicalX >= srcW) logicalX = srcW - 1;
-
-          int srcX, srcY;
-          if (rotation == 90) {
-            srcX = logicalY;
-            srcY = srcH - 1 - logicalX; 
-          } else if (rotation == 270) {
-             srcX = srcW - 1 - logicalY;
-             srcY = logicalX;
-          } else if (rotation == 180) {
-            srcX = srcW - 1 - logicalX;
-            srcY = srcH - 1 - logicalY;
-          } else {
-            srcX = logicalX;
-            srcY = logicalY;
-          }
-
-          // Double check bounds (though clamping above should handle it)
-          // srcX = srcX.clamp(0, srcW - 1);
-          // srcY = srcY.clamp(0, srcH - 1);
-
-          final int yIndex = srcY * req.yRowStride + srcX;
-          final int uvIndex = (srcY ~/ 2) * req.uvRowStride + (srcX ~/ 2) * req.uvPixelStride;
-
-          final int yValue = req.yBytes![yIndex];
-          final int uValue = req.uBytes![uvIndex];
-          final int vValue = req.vBytes![uvIndex];
-
-          // Inline YUV to RGB (Integer approximation)
-          // R = Y + 1.402 * (V - 128)
-          // G = Y - 0.344136 * (U - 128) - 0.714136 * (V - 128)
-          // B = Y + 1.772 * (U - 128)
-          
-          // Using integer math for speed (approximate)
-          // C = Y - 16 (but we use Y directly as 0-255)
-          // D = U - 128
-          // E = V - 128
-          // R = (298 * C + 409 * E + 128) >> 8
-          // ... simpler version:
-          
-          final int c = yValue - 16;
-          final int d = uValue - 128;
-          final int e = vValue - 128;
-          
-          int r = (298 * c + 409 * e + 128) >> 8;
-          int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
-          int b = (298 * c + 516 * d + 128) >> 8;
-
-          input[pixelIndex++] = r.clamp(0, 255);
-          input[pixelIndex++] = g.clamp(0, 255);
-          input[pixelIndex++] = b.clamp(0, 255);
-        }
+      
+      // Optimization: Handle rotation outside the loop to avoid 'if' checks per pixel
+      if (rotation == 90) {
+        _fillBufferRotated90(
+          input, req, startX, endX, startY, endY, padX, padY, invScale, targetSize, srcW, srcH
+        );
+      } else if (rotation == 270) {
+        _fillBufferRotated270(
+          input, req, startX, endX, startY, endY, padX, padY, invScale, targetSize, srcW, srcH
+        );
+      } else {
+         // Default 0 (or 180 which is rare for back cam, but treating as 0 for basic logic or just generic)
+         // For simplicity in this optimization step, we focus on 0/90/270. 180 can fall back to generic if needed, 
+         // but here we implements 0.
+        _fillBufferRotated0(
+           input, req, startX, endX, startY, endY, padX, padY, invScale, targetSize, srcW, srcH
+        );
       }
 
       return {
-        'tensor': input, // Flat buffer
+        'tensor': input,
         'padX': padX.toDouble(),
         'padY': padY.toDouble(),
       };
@@ -499,6 +470,157 @@ class PoseDetectorService {
       print("Preprocess Error: $e");
       return null;
     }
+  }
+
+  // Optimized Loop for Rotation 0
+  static void _fillBufferRotated0(
+      Uint8List input, InferenceRequest req, 
+      int startX, int endX, int startY, int endY, 
+      int padX, int padY, double invScale, int targetSize, int srcW, int srcH) {
+    
+    final yBytes = req.yBytes!;
+    final uBytes = req.uBytes!;
+    final vBytes = req.vBytes!;
+    final yRowStride = req.yRowStride;
+    final uvRowStride = req.uvRowStride;
+    final uvPixelStride = req.uvPixelStride;
+
+    for (int y = startY; y < endY; y++) {
+      int logicalY = ((y - padY) * invScale).floor();
+      if (logicalY >= srcH) logicalY = srcH - 1; 
+
+      int pixelIndex = (y * targetSize + startX) * 3;
+      
+      // Optimization: Calculate row pointers once per row
+      int yRowOffset = logicalY * yRowStride;
+      int uvRowOffset = (logicalY >> 1) * uvRowStride;
+
+      for (int x = startX; x < endX; x++) {
+        int logicalX = ((x - padX) * invScale).floor();
+        if (logicalX >= srcW) logicalX = srcW - 1;
+
+        // Src coords for Rot 0 are just logical coords
+        // srcX = logicalX, srcY = logicalY
+        
+        int yIndex = yRowOffset + logicalX;
+        // int uvIndex = (logicalY ~/ 2) * uvRowStride + (logicalX ~/ 2) * uvPixelStride;
+        // Optimized:
+        int uvIndex = uvRowOffset + (logicalX >> 1) * uvPixelStride;
+
+        int yValue = yBytes[yIndex];
+        int uValue = uBytes[uvIndex];
+        int vValue = vBytes[uvIndex];
+
+        _yuvToRgb(yValue, uValue, vValue, input, pixelIndex);
+        pixelIndex += 3;
+      }
+    }
+  }
+
+  // Optimized Loop for Rotation 90 (Common for Portrait)
+  static void _fillBufferRotated90(
+      Uint8List input, InferenceRequest req, 
+      int startX, int endX, int startY, int endY, 
+      int padX, int padY, double invScale, int targetSize, int srcW, int srcH) {
+    
+    final yBytes = req.yBytes!;
+    final uBytes = req.uBytes!;
+    final vBytes = req.vBytes!;
+    final yRowStride = req.yRowStride;
+    final uvRowStride = req.uvRowStride;
+    final uvPixelStride = req.uvPixelStride;
+
+    for (int y = startY; y < endY; y++) {
+      int logicalY = ((y - padY) * invScale).floor(); // 0..srcH (which is width of phone)
+      // Clamp not strictly needed if Letterboxing is correct, but safe
+      if (logicalY >= srcW) logicalY = srcW - 1; // logicalSrcH is srcW
+
+      int pixelIndex = (y * targetSize + startX) * 3;
+
+      for (int x = startX; x < endX; x++) {
+        int logicalX = ((x - padX) * invScale).floor(); // 0..srcW (which is height of phone)
+        if (logicalX >= srcH) logicalX = srcH - 1; // logicalSrcW is srcH
+
+        // ROTATION 90 Mapping:
+        // visual x,y corresponds to:
+        // srcX = logicalY
+        // srcY = srcH - 1 - logicalX
+        
+        int srcX = logicalY;
+        int srcY = srcH - 1 - logicalX;
+
+        int yIndex = srcY * yRowStride + srcX;
+        int uvIndex = (srcY >> 1) * uvRowStride + (srcX >> 1) * uvPixelStride;
+
+        int yValue = yBytes[yIndex];
+        int uValue = uBytes[uvIndex];
+        int vValue = vBytes[uvIndex];
+
+        _yuvToRgb(yValue, uValue, vValue, input, pixelIndex);
+        pixelIndex += 3;
+      }
+    }
+  }
+
+  // Optimized Loop for Rotation 270 (Reverse Portrait)
+  static void _fillBufferRotated270(
+      Uint8List input, InferenceRequest req, 
+      int startX, int endX, int startY, int endY, 
+      int padX, int padY, double invScale, int targetSize, int srcW, int srcH) {
+    
+    final yBytes = req.yBytes!;
+    final uBytes = req.uBytes!;
+    final vBytes = req.vBytes!;
+    final yRowStride = req.yRowStride;
+    final uvRowStride = req.uvRowStride;
+    final uvPixelStride = req.uvPixelStride;
+
+    for (int y = startY; y < endY; y++) {
+      int logicalY = ((y - padY) * invScale).floor();
+      if (logicalY >= srcW) logicalY = srcW - 1;
+
+      int pixelIndex = (y * targetSize + startX) * 3;
+
+      for (int x = startX; x < endX; x++) {
+        int logicalX = ((x - padX) * invScale).floor();
+        if (logicalX >= srcH) logicalX = srcH - 1;
+
+        // ROTATION 270 Mapping:
+        // srcX = srcW - 1 - logicalY
+        // srcY = logicalX
+        
+        int srcX = srcW - 1 - logicalY;
+        int srcY = logicalX;
+
+        int yIndex = srcY * yRowStride + srcX;
+        int uvIndex = (srcY >> 1) * uvRowStride + (srcX >> 1) * uvPixelStride;
+
+        int yValue = yBytes[yIndex];
+        int uValue = uBytes[uvIndex];
+        int vValue = vBytes[uvIndex];
+
+        _yuvToRgb(yValue, uValue, vValue, input, pixelIndex);
+        pixelIndex += 3;
+      }
+    }
+  }
+
+  // Inline-able YUV conversion
+  static void _yuvToRgb(int y, int u, int v, Uint8List output, int offset) {
+      final int c = y - 16;
+      final int d = u - 128;
+      final int e = v - 128;
+      
+      int r = (298 * c + 409 * e + 128) >> 8;
+      int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+      int b = (298 * c + 516 * d + 128) >> 8;
+
+      // Manual clamping is faster than .clamp() method overhead in tight loops in some Dart versions,
+      // but .clamp is intrinsified. Stick to simple if/ternary if needed, but .clamp(0,255) is fine.
+      // Using branchless clamp if possible, or just standard.
+      output[offset] = r.clamp(0, 255);
+      output[offset + 1] = g.clamp(0, 255);
+      output[offset + 2] = b.clamp(0, 255);
   }
 
   static int _yuv2r(int y, int u, int v) {
@@ -543,304 +665,46 @@ class PoseDetectorService {
     };
   }
 
-  // Copied from original service, made static
+  // Refactored to use Strategy Pattern
   static Map<String, dynamic> _analyzePose(List<List<double>> keypoints, Map<String, dynamic> classification, String exerciseName) {
     final score = classification['score'];
-    String feedback = "偵測中...";
-    Color color = Colors.white;
-    Set<int> problemKeypoints = {};
-    Map<String, double> angles = {};
+    ExerciseAnalyzer? analyzer;
 
-    double _calculateAngle(List<double> a, List<double> b, List<double> c) {
-      final radians = atan2(c[0] - b[0], c[1] - b[1]) - atan2(a[0] - b[0], a[1] - b[1]);
-      double angle = (radians * 180.0 / pi).abs();
-      if (angle > 180.0) angle = 360 - angle;
-      return angle;
+    // Factory logic (simple string matching)
+    if (exerciseName.contains('深蹲')) {
+      analyzer = SquatAnalyzer();
+    } else if (exerciseName.contains('硬舉')) {
+      analyzer = DeadliftAnalyzer();
+    } else if (exerciseName.contains('臥推')) {
+      analyzer = BenchPressAnalyzer();
+    } else if (exerciseName.contains('伏地挺身')) {
+      analyzer = PushUpAnalyzer();
+    } else if (exerciseName.contains('引體向上')) {
+      analyzer = PullUpAnalyzer();
+    } else if (exerciseName.contains('肩推')) {
+      analyzer = ShoulderPressAnalyzer();
+    } else if (exerciseName.contains('側平舉')) {
+      analyzer = LateralRaiseAnalyzer();
+    } else if (exerciseName.contains('彎舉')) {
+      analyzer = BicepCurlAnalyzer();
+    } else if (exerciseName.contains('三頭')) {
+      analyzer = TricepPushdownAnalyzer();
+    } else if (exerciseName.contains('捲腹')) {
+      analyzer = CrunchAnalyzer();
+    } else if (exerciseName.contains('走路') || exerciseName.contains('walking')) {
+        analyzer = WalkingAnalyzer();
     }
 
-    double? getAngle(int idx1, int idx2, int idx3) {
-      if (keypoints[idx1][2] > 0.2 && keypoints[idx2][2] > 0.2 && keypoints[idx3][2] > 0.2) {
-        return _calculateAngle(keypoints[idx1], keypoints[idx2], keypoints[idx3]);
-      }
-      return null;
+    if (score > 0.4 && analyzer != null) {
+      return analyzer.analyze(keypoints);
     }
 
-    double? getAverageAngle(int left1, int left2, int left3, int right1, int right2, int right3) {
-      double? left = getAngle(left1, left2, left3);
-      double? right = getAngle(right1, right2, right3);
-      if (left != null && right != null) return (left + right) / 2;
-      return left ?? right;
-    }
-
-    if (score > 0.4) {
-      if (exerciseName.contains('深蹲')) {
-        double? kneeAngle = getAverageAngle(11, 13, 15, 12, 14, 16);
-        double? hipAngle = getAverageAngle(5, 11, 13, 6, 12, 14);
-        if (kneeAngle != null) angles['knee'] = kneeAngle;
-        if (hipAngle != null) angles['hip'] = hipAngle;
-
-        if (kneeAngle != null && hipAngle != null) {
-          if (hipAngle > 165) {
-             feedback = "屁股向前推 (夾緊)";
-             color = Colors.white;
-          } else {
-             if (kneeAngle < 30) {
-               feedback = "太深了 (小心)";
-               color = Colors.red;
-               problemKeypoints.addAll([13, 14]); 
-             } else if (kneeAngle < 100) {
-               feedback = "完美全蹲";
-               color = Colors.green;
-             } else if (kneeAngle < 130) {
-               feedback = "再蹲低一點";
-               color = Colors.yellow;
-             } else {
-               feedback = "屁股向後坐";
-               color = Colors.white;
-             }
-          }
-        }
-      } 
-      else if (exerciseName.contains('硬舉')) {
-        double? angle = getAverageAngle(5, 11, 13, 6, 12, 14);
-        if (angle != null) {
-          if (angle < 120) {
-            feedback = "屁股夾緊，不過度骨盆前傾";
-            color = Colors.green;
-          } else if (angle > 160) {
-            feedback = "背部打直，屁股夾緊";
-            color = Colors.white;
-          } else {
-            feedback = "背部打直，屁股向後推，收緊核心";
-            color = Colors.yellow;
-          }
-        }
-      }
-      else if (exerciseName.contains('臥推')) {
-        double? angle = getAverageAngle(5, 7, 9, 6, 8, 10);
-        if (angle != null) {
-          if (angle < 90) {
-            feedback = "底部位置";
-            color = Colors.green;
-          } else if (angle > 170) {
-            feedback = "手肘微收，不要鎖死";
-            color = Colors.red;
-            problemKeypoints.addAll([7, 8]); 
-          } else if (angle > 160) {
-            feedback = "推起吐氣";
-            color = Colors.white;
-          } else {
-            feedback = "肩胛骨鎖定，核心收緊，挺胸";
-            color = Colors.yellow;
-          }
-        }
-      }
-      else if (exerciseName.contains('伏地挺身')) {
-        double? armAngle = getAverageAngle(5, 7, 9, 6, 8, 10);
-        double? bodyAngle = getAverageAngle(5, 11, 15, 6, 12, 16);
-        const double LOCKOUT_ANGLE = 170; 
-        const double DEPTH_ANGLE = 90;    
-
-        if (bodyAngle != null && bodyAngle < 150) {
-           feedback = "腰部塌陷！收緊核心";
-           color = Colors.red;
-           problemKeypoints.addAll([11, 12]);
-        } else if (armAngle != null && armAngle > LOCKOUT_ANGLE) {
-          feedback = "回到頂端，準備下一次！";
-          color = Colors.blue; 
-        }else if (armAngle != null) {
-          if (armAngle < DEPTH_ANGLE) {
-            feedback = "完美深度！有力推起";
-            color = Colors.green;
-          } else if (armAngle > 160) {
-            feedback = "身體呈直線";
-            color = Colors.white;
-          } else {
-            feedback = "繼續下放，胸口貼地";
-            color = Colors.yellow;
-          }
-        }
-      }
-      else if (exerciseName.contains('引體向上')) {
-        double? elbowAngle = getAverageAngle(5, 7, 9, 6, 8, 10); 
-        double? trunkAngle = getAverageAngle(5, 11, 13, 6, 12, 14); 
-        
-        if (trunkAngle != null && trunkAngle < 140) {
-            feedback = "身體晃動或腰部反弓！收緊核心和臀部";
-            color = Colors.red;
-            problemKeypoints.addAll([11, 12]); 
-        } 
-        else if (elbowAngle != null) {
-            const double FULL_EXTENSION_ANGLE = 175; 
-            
-            if (elbowAngle > FULL_EXTENSION_ANGLE) {
-                feedback = "完全放鬆肩胛！有力向上拉";
-                color = Colors.blue; 
-            } 
-            else {
-            feedback = "背部啟動發力";
-            color = Colors.yellow;
-          }
-        }
-      }
-      else if (exerciseName.contains('肩推')) {
-        double? angle = getAverageAngle(5, 7, 9, 6, 8, 10);
-        if (angle != null) {
-          if (angle > 160) {
-            feedback = "推起伸直";
-            color = Colors.green; 
-          } else if (angle < 90) {
-            feedback = "核心收緊";
-            color = Colors.white;
-          } else {
-            feedback = "不要過度挺腰";
-            color = Colors.yellow;
-          }
-        }
-      }
-      else if (exerciseName.contains('側平舉')) {
-        double? shoulderAbductionAngle = getAverageAngle(11, 5, 7, 12, 6, 8); 
-        double? elbowAngle = getAverageAngle(5, 7, 9, 6, 8, 10);
-        
-        double? leftWristY = getKeypointY(keypoints, 9);
-        double? rightWristY = getKeypointY(keypoints, 10);
-        double? leftShoulderY = getKeypointY(keypoints, 5);
-        double? rightShoulderY = getKeypointY(keypoints, 6);
-        
-        double? wristYPosition;
-        if (leftWristY != null && rightWristY != null) {
-          wristYPosition = (leftWristY + rightWristY) / 2;
-        }
-        
-        double? shoulderYPosition;
-        if (leftShoulderY != null && rightShoulderY != null) {
-          shoulderYPosition = (leftShoulderY + rightShoulderY) / 2;
-        }
-        
-        const double MIN_ELBOW_BEND = 140; 
-        const double MAX_ELBOW_BEND = 175; 
-        
-        if (elbowAngle != null && (elbowAngle < MIN_ELBOW_BEND || elbowAngle > MAX_ELBOW_BEND)) {
-            feedback = "保持手肘微彎，不要太直或太彎";
-            color = Colors.orange;
-            problemKeypoints.addAll([7, 8]); 
-        }
-        else if (shoulderAbductionAngle != null && shoulderYPosition != null && wristYPosition != null) {
-            const double TOP_ANGLE = 95; 
-            const double BOTTOM_ANGLE = 20; 
-            const double MAX_LIFT_HEIGHT_DIFF = 0.05; 
-            
-            if (shoulderAbductionAngle < BOTTOM_ANGLE) {
-                feedback = "完全放下！保持張力，準備提起";
-                color = Colors.blue; 
-            } 
-            else if (shoulderAbductionAngle > TOP_ANGLE) { 
-                if ((shoulderYPosition - wristYPosition) > MAX_LIFT_HEIGHT_DIFF) {
-                    feedback = "抬太高了！手腕不要超過肩膀高度";
-                    color = Colors.red;
-                    problemKeypoints.addAll([5, 6, 9, 10]); 
-                } else {
-                    feedback = "完美！保持頂峰收縮，緩慢放下";
-                    color = Colors.green;
-                }
-            } 
-            else {
-                feedback = "持續發力，專注三角肌中束";
-                color = Colors.yellow;
-            }
-        }
-      }
-      else if (exerciseName.contains('彎舉')) {
-        double? elbowAngle = getAverageAngle(5, 7, 9, 6, 8, 10); 
-        double? shoulderAngle = getAverageAngle(7, 5, 11, 8, 6, 12); 
-        
-        const double MAX_SHOULDER_FLARE = 30; 
-
-        if (shoulderAngle != null && shoulderAngle > MAX_SHOULDER_FLARE) {
-            feedback = "上臂前移代償！固定手肘，收緊核心";
-            color = Colors.red;
-            problemKeypoints.addAll([5, 6]); 
-        } 
-        else if (elbowAngle != null) {
-            const double FULL_EXTENSION_ANGLE = 170; 
-            const double PEAK_CONTRACTION_ANGLE = 40; 
-            
-            if (elbowAngle > FULL_EXTENSION_ANGLE) {
-                feedback = "完全伸展！準備收縮";
-                color = Colors.blue; 
-            } 
-            else if (elbowAngle < PEAK_CONTRACTION_ANGLE) { 
-                feedback = "完美收縮！緩慢放下感受離心";
-                color = Colors.green;
-            } 
-            else {
-                feedback = "持續發力，專注二頭肌收縮";
-                color = Colors.yellow;
-            }
-        }
-      }
-      else if (exerciseName.contains('三頭')) {
-        double? elbowAngle = getAverageAngle(5, 7, 9, 6, 8, 10);
-        double? upperArmAngle = getAverageAngle(11, 5, 7, 12, 6, 8); 
-        
-        const double MAX_UPPER_ARM_MOVE = 30;
-
-        if (upperArmAngle != null && upperArmAngle > MAX_UPPER_ARM_MOVE) {
-            feedback = "上臂移動代償！將手肘鎖定在身體兩側";
-            color = Colors.red;
-            problemKeypoints.addAll([5, 6, 7, 8]); 
-        }
-        else if (elbowAngle != null) {
-            const double PEAK_CONTRACTION_ANGLE = 170; 
-            const double BOTTOM_STRETCH_ANGLE = 90;    
-            
-            if (elbowAngle > PEAK_CONTRACTION_ANGLE) {
-                feedback = "完美收縮！感受三頭肌鎖緊";
-                color = Colors.green;
-            } 
-            else if (elbowAngle < BOTTOM_STRETCH_ANGLE) { 
-                feedback = "保持張力不要完全休息";
-                color = Colors.yellow;
-            } 
-            else {
-                feedback = "保持張力，有力下壓";
-                color = Colors.white;
-            }
-        }
-      }
-      else if (exerciseName.contains('捲腹')) {
-        double? shkAngle = getAverageAngle(5, 11, 13, 6, 12, 14); 
-        double? neckAngle = getAngle(0, 5, 11);
-
-        const double PEAK_CRUNCH_ANGLE = 120; 
-        const double REST_CRUNCH_ANGLE = 160; 
-        const double MAX_NECK_FLEXION = 100; 
-
-        if (neckAngle != null && neckAngle < MAX_NECK_FLEXION) {
-            feedback = "避免拉脖子！下巴與胸口保持一個拳頭距離";
-            color = Colors.red;
-            problemKeypoints.addAll([0, 5]); 
-        } 
-        else if (shkAngle != null) {
-            if (shkAngle < PEAK_CRUNCH_ANGLE) {
-                feedback = "完美！腹部用力收緊";
-                color = Colors.green;
-            } else if (shkAngle > REST_CRUNCH_ANGLE) {
-                feedback = "緩慢回到地面，充分伸展腹部";
-                color = Colors.blue;
-            }
-            else {
-                feedback = "繼續捲曲，專注腹肌收縮";
-                color = Colors.yellow;
-            }
-        }
-      }
-    }
+    // Default return
     return {
-      'feedback': feedback,
-      'color': color,
-      'problemKeypoints': problemKeypoints,
-      'angles': angles,
+      'feedback': "偵測中...",
+      'color': Colors.white,
+      'problemKeypoints': <int>{},
+      'angles': <String, double>{},
     };
   }
 

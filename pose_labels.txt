@@ -7,5 +7,5 @@ pull-up
 push_ups
 shoulder_press
 squat
-standing
 triceps_pushdowns
+walking
