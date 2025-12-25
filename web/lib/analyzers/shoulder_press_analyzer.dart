@@ -10,6 +10,7 @@ class ShoulderPressAnalyzer extends ExerciseAnalyzer {
     Map<String, double> angles = {};
 
     double? angle = getAverageAngle(keypoints, 5, 7, 9, 6, 8, 10);
+    if (angle != null) angles['elbow'] = angle;
     if (angle != null) {
       if (angle > 160) {
         feedback = "推起伸直";

@@ -10,6 +10,7 @@ class DeadliftAnalyzer extends ExerciseAnalyzer {
     Map<String, double> angles = {};
 
     double? angle = getAverageAngle(keypoints, 5, 11, 13, 6, 12, 14);
+    if (angle != null) angles['hip'] = angle;
     
     if (angle != null) {
       if (angle < 120) {

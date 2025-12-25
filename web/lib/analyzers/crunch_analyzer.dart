@@ -11,6 +11,8 @@ class CrunchAnalyzer extends ExerciseAnalyzer {
 
     double? shkAngle = getAverageAngle(keypoints, 5, 11, 13, 6, 12, 14); 
     double? neckAngle = getAngle(keypoints, 0, 5, 11);
+    if (shkAngle != null) angles['hip'] = shkAngle;
+    if (neckAngle != null) angles['neck'] = neckAngle;
 
     const double PEAK_CRUNCH_ANGLE = 120; 
     const double REST_CRUNCH_ANGLE = 160; 

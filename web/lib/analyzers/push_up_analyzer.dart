@@ -11,6 +11,8 @@ class PushUpAnalyzer extends ExerciseAnalyzer {
 
     double? armAngle = getAverageAngle(keypoints, 5, 7, 9, 6, 8, 10);
     double? bodyAngle = getAverageAngle(keypoints, 5, 11, 15, 6, 12, 16);
+    if (armAngle != null) angles['elbow'] = armAngle;
+    if (bodyAngle != null) angles['hip'] = bodyAngle;
     const double LOCKOUT_ANGLE = 170; 
     const double DEPTH_ANGLE = 90;    
 

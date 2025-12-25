@@ -30,6 +30,22 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
   double _analysisProgress = 0.0;
   String _status = "";
   
+  // Action Selection
+  final List<String> _actions = [
+    '選擇動作',
+    '深蹲',
+    '硬舉',
+    '臥推',
+    '伏地挺身',
+    '引體向上',
+    '肩推',
+    '側平舉',
+    '二頭彎舉',
+    '三頭下壓', 
+    '捲腹',
+  ];
+  String _selectedAction = '選擇動作';
+  
   // Analysis Results: Map<TimestampMs, Map<String, dynamic>>
   final Map<int, Map<String, dynamic>> _analysisResults = {};
   
@@ -37,6 +53,91 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
   List<List<double>>? _currentKeypoints;
   String _currentFeedback = "";
   Color _currentFeedbackColor = Colors.white;
+  String _currentLabel = "";
+  Map<String, double> _currentAngles = {};
+
+  // Angle Configurations (Min, Max, BestMin, BestMax)
+  // Maps: Exercise Label -> { Angle Name -> [Min, Max, GreenMin, GreenMax] }
+  static const Map<String, Map<String, List<double>>> _angleConfigs = {
+    '深蹲': {
+      'knee': [0, 180, 0, 100], 
+      'hip': [0, 180, 0, 165], 
+    },
+    'squat': { // English alias
+      'knee': [0, 180, 0, 100], 
+      'hip': [0, 180, 0, 165], 
+    },
+    '硬舉': {
+      'hip': [0, 180, 0, 120],
+      'knee': [0, 180, 140, 180],
+    },
+    'deadlift': { // English alias
+      'hip': [0, 180, 0, 120],
+      'knee': [0, 180, 140, 180],
+    },
+    '臥推': {
+      'elbow': [0, 180, 0, 90], 
+    },
+    'bench_press': { // English alias
+      'elbow': [0, 180, 0, 90], 
+    },
+    '伏地挺身': {
+      'elbow': [0, 180, 0, 90],
+    },
+    'push_up': { // English alias
+      'elbow': [0, 180, 0, 90],
+    },
+    '肩推': {
+      'elbow': [0, 180, 90, 180], 
+    },
+    'shoulder_press': { 
+      'elbow': [0, 180, 90, 180], 
+    },
+    '引體向上': {
+      'elbow': [0, 180, 0, 175], // Pull hard
+      'body': [0, 180, 140, 180], // Keep straight
+    },
+    'pull_up': {
+      'elbow': [0, 180, 0, 175],
+      'body': [0, 180, 140, 180],
+    },
+    '側平舉': {
+      'shoulder': [0, 180, 20, 90], // Lift range
+      'elbow': [0, 180, 140, 175], // Slight bend
+    },
+    'lateral_raise': {
+      'shoulder': [0, 180, 20, 90],
+      'elbow': [0, 180, 140, 175],
+    },
+    '二頭彎舉': {
+      'elbow': [0, 180, 40, 170], // Full range
+      'shoulder': [0, 180, 0, 30], // Stable
+    },
+    'curl': {
+      'elbow': [0, 180, 40, 170],
+      'shoulder': [0, 180, 0, 30],
+    },
+    '三頭下壓': {
+      'elbow': [0, 180, 90, 170],
+      'shoulder': [0, 180, 0, 30],
+    },
+    'tricep_extension': {
+      'elbow': [0, 180, 90, 170],
+      'shoulder': [0, 180, 0, 30],
+    },
+    'tricep_pushdown': {
+      'elbow': [0, 180, 90, 170],
+      'shoulder': [0, 180, 0, 30],
+    },
+    '捲腹': {
+      'hip': [0, 180, 0, 120], // Crunch
+      'neck': [0, 180, 100, 180], // Safe neck
+    },
+    'crunch': {
+      'hip': [0, 180, 0, 120],
+      'neck': [0, 180, 100, 180],
+    },
+  };
 
   @override
   void initState() {
@@ -129,8 +230,46 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
              if (analysis != null) {
                 // Show label and score
                 String scoreText = (score * 100).toStringAsFixed(0);
-                String displayLabel = "動作: $label ($scoreText%)";
+                
+                // Translate label
+                String displayLabelText = label;
+                const labelMap = {
+                  'squat': '深蹲',
+                  'deadlift': '硬舉',
+                  'bench_press': '臥推',
+                  'push_up': '伏地挺身',
+                  'pull_up': '引體向上',
+                  'shoulder_press': '肩推',
+                  'lateral_raise': '側平舉',
+                  'curl': '二頭彎舉',
+                  'tricep_extension': '三頭下壓', 
+                  'tricep_pushdown': '三頭下壓', // Handle potential alias
+                  'crunch': '捲腹',
+                };
+                
+                String displayLabel;
+                if (_selectedAction != '選擇動作') {
+                   displayLabelText = _selectedAction;
+                   // Use score if it matches, otherwise maybe hide it? 
+                   // For simplicity, just show label or keep score if relevant. 
+                   // But score is for the *detected* label. 
+                   // If manually selected, score is irrelevant/misleading.
+                   // Let's show: "動作: 深蹲 (手動)"
+                   displayLabel = "動作: $displayLabelText";
+                } else {
+                   if (labelMap.containsKey(label)) {
+                     displayLabelText = labelMap[label]!;
+                   }
+                   displayLabel = "動作: $displayLabelText ($scoreText%)";
+                }
                 String feedback = analysis['feedback'] ?? "";
+                
+                if (analysis['angles'] != null) {
+                   _currentAngles = Map<String, double>.from(analysis['angles']);
+                } else {
+                   _currentAngles = {};
+                }
+                _currentLabel = label;
                 
                 _currentFeedback = "$displayLabel\n$feedback";
                 _currentFeedbackColor = analysis['color'] ?? Colors.white;
@@ -145,6 +284,8 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
        setState(() {
          _currentKeypoints = null;
          _currentFeedback = "";
+         _currentLabel = "";
+         _currentAngles = {};
        });
     }
   }
@@ -248,12 +389,28 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
     }
   }
 
+
+
+  void _onActionChanged(String? newValue) {
+    if (newValue == null) return;
+    setState(() {
+      _selectedAction = newValue;
+    });
+    
+    if (newValue == '選擇動作') {
+      _poseService.setAutoClassification(true);
+    } else {
+      _poseService.setAutoClassification(false);
+      _poseService.setExercise(newValue);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('影片動作分析 (Windows)', style: TextStyle(color: Colors.white)),
+        title: const Text('影片動作分析', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -262,8 +419,11 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
           // Video Area
           // Video Area
           Expanded(
-            child: Center(
-              child: (_videoController != null && _videoController!.value.isInitialized)
+            child: Row(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: (_videoController != null && _videoController!.value.isInitialized)
                   ? AspectRatio(
                       aspectRatio: _videoController!.value.aspectRatio,
                       child: Stack(
@@ -325,11 +485,61 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
                         ],
                       ),
                     )
-                  : const Text('請選擇影片', style: TextStyle(color: Colors.grey)),
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('請選擇影片', style: TextStyle(color: Colors.white, fontSize: 24)), 
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Action Selector
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[800],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _selectedAction,
+                                  dropdownColor: Colors.grey[800],
+                                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                                  icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                                  alignment: AlignmentDirectional.center,
+                                  items: _actions.map((String value) {
+                                    return DropdownMenuItem<String>(
+                                      value: value,
+                                      child: Center(child: Text(value)),
+                                    );
+                                  }).toList(),
+                                  onChanged: _isAnalyzing ? null : _onActionChanged,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            ElevatedButton.icon(
+                              onPressed: _isAnalyzing ? null : _pickVideo, 
+                              icon: const Icon(Icons.video_file), 
+                              label: const Text('選擇影片'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                textStyle: const TextStyle(fontSize: 18),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _buildAngleDashboard(),
+              ],
             ),
           ),
           
           // Controls
+          if (_videoController != null && _videoController!.value.isInitialized)
           Container(
             padding: const EdgeInsets.all(16),
             color: Colors.grey[900],
@@ -347,6 +557,35 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    // Action Selector
+                    if (!_isAnalyzing) ...[
+                      // Action Selector
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[800],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedAction,
+                            dropdownColor: Colors.grey[800],
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                            icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                            alignment: AlignmentDirectional.center, // Center the selected item content
+                            items: _actions.map((String value) {
+                              return DropdownMenuItem<String>(
+                                value: value,
+                                child: Center(child: Text(value)), // Center the list items
+                              );
+                            }).toList(),
+                            onChanged: _isAnalyzing ? null : _onActionChanged,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                    ],
+                    
                     ElevatedButton.icon(
                       onPressed: _isAnalyzing ? null : _pickVideo, 
                       icon: const Icon(Icons.video_file), 
@@ -384,6 +623,131 @@ class _VideoAnalysisPageState extends State<VideoAnalysisPage> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAngleDashboard() {
+    // Determine configs based on _selectedAction or detected label
+    Map<String, List<double>> config = _angleConfigs[_selectedAction] ?? _angleConfigs[_currentLabel] ?? {};
+    
+    // Label translation
+    const Map<String, String> angleLabels = {
+      'knee': '膝蓋角度',
+      'hip': '髖部角度',
+      'elbow': '手肘角度',
+      'back': '背部角度',
+    };
+    
+    return Container(
+      width: 250,
+      height: double.infinity,
+      color: Colors.black87,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("關節角度監控", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+          Expanded(
+            child: ListView(
+              children: config.keys.map((key) {
+                final value = _currentAngles[key] ?? 0.0;
+                final range = config[key] ?? [0, 180, 0, 0]; // Default range
+                final label = angleLabels[key] ?? key;
+                
+                return _buildGauge(label, value, range);
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGauge(String label, double value, List<double> range) {
+    if (range.length < 4) range = [0, 180, 0, 0];
+    final double min = range[0];
+    final double max = range[1];
+    final double greenMin = range[2];
+    final double greenMax = range[3];
+    
+    double percent = (value - min) / (max - min);
+    percent = percent.clamp(0.0, 1.0);
+    
+    // Use LayoutBuilder for responsive width if possible, but fixed 218 is fine for 250 container
+    final double trackWidth = 218.0;
+
+    double greenStart = (greenMin - min) / (max - min);
+    double greenEnd = (greenMax - min) / (max - min);
+    
+    bool isGood = value >= greenMin && value <= greenMax;
+    Color valueColor = isGood ? Colors.greenAccent : Colors.white;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: const TextStyle(color: Colors.white70)),
+              Text("${value.toStringAsFixed(0)}°", style: TextStyle(color: valueColor, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 12,
+            child: Stack(
+              children: [
+                // Background Track
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[800],
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                // Green Zone
+                if (greenMax > greenMin)
+                Positioned(
+                  left: greenStart * trackWidth, 
+                  width: (greenEnd - greenStart) * trackWidth, 
+                  top: 0,
+                  bottom: 0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(0),
+                    ),
+                  ),
+                ),
+                // Marker
+                Positioned(
+                  left: (percent * trackWidth) - 2, // Center the marker
+                  top: 0,
+                  bottom: 0,
+                  width: 4,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: valueColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                )
+              ],
+            ),
+          ),
+          // Recommended Label
+          if (greenMax > greenMin)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              "推薦: ${greenMin.toStringAsFixed(0)}° - ${greenMax.toStringAsFixed(0)}°",
+              style: TextStyle(color: Colors.green.withOpacity(0.7), fontSize: 10),
+            ),
+          )
         ],
       ),
     );

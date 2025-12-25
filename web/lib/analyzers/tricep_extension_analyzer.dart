@@ -11,6 +11,8 @@ class TricepExtensionAnalyzer extends ExerciseAnalyzer {
 
     double? elbowAngle = getAverageAngle(keypoints, 5, 7, 9, 6, 8, 10);
     double? upperArmAngle = getAverageAngle(keypoints, 11, 5, 7, 12, 6, 8); 
+    if (elbowAngle != null) angles['elbow'] = elbowAngle;
+    if (upperArmAngle != null) angles['shoulder'] = upperArmAngle; 
     
     const double MAX_UPPER_ARM_MOVE = 30;
 

@@ -11,6 +11,8 @@ class LateralRaiseAnalyzer extends ExerciseAnalyzer {
 
     double? shoulderAbductionAngle = getAverageAngle(keypoints, 11, 5, 7, 12, 6, 8); 
     double? elbowAngle = getAverageAngle(keypoints, 5, 7, 9, 6, 8, 10);
+    if (shoulderAbductionAngle != null) angles['shoulder'] = shoulderAbductionAngle;
+    if (elbowAngle != null) angles['elbow'] = elbowAngle;
     
     // Note: getKeypointY is now in Base Class
     double? leftWristY = getKeypointY(keypoints, 9);

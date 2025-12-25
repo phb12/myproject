@@ -11,6 +11,8 @@ class PullUpAnalyzer extends ExerciseAnalyzer {
 
     double? elbowAngle = getAverageAngle(keypoints, 5, 7, 9, 6, 8, 10); 
     double? trunkAngle = getAverageAngle(keypoints, 5, 11, 13, 6, 12, 14); 
+    if (elbowAngle != null) angles['elbow'] = elbowAngle;
+    if (trunkAngle != null) angles['body'] = trunkAngle; 
     
     if (trunkAngle != null && trunkAngle < 140) {
         feedback = "身體晃動或腰部反弓！收緊核心和臀部";

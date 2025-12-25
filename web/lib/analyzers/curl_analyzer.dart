@@ -11,6 +11,8 @@ class CurlAnalyzer extends ExerciseAnalyzer {
 
     double? elbowAngle = getAverageAngle(keypoints, 5, 7, 9, 6, 8, 10); 
     double? shoulderAngle = getAverageAngle(keypoints, 7, 5, 11, 8, 6, 12); 
+    if (elbowAngle != null) angles['elbow'] = elbowAngle;
+    if (shoulderAngle != null) angles['shoulder'] = shoulderAngle; 
     
     const double MAX_SHOULDER_FLARE = 30; 
 

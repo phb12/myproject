@@ -68,6 +68,12 @@ class WindowsPoseService {
     }
   }
 
+  // Auto Classification Flag
+  bool _autoClassification = true;
+  void setAutoClassification(bool enabled) {
+    _autoClassification = enabled;
+  }
+
   // Not strictly needed if auto-classification works, but kept for manual override if needed
   void setExercise(String exerciseName) {
     _setAnalyzer(exerciseName);
@@ -207,7 +213,7 @@ class WindowsPoseService {
       classificationResult = _runClassification(keypoints);
       
       // Update Analyzer if score is high enough
-      if (classificationResult['score'] > 0.8) { // Confidence threshold
+      if (_autoClassification && classificationResult['score'] > 0.8) { // Confidence threshold
          String label = classificationResult['label'];
          _setAnalyzer(label);
       }
