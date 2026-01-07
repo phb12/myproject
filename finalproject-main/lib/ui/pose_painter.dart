@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+// 負責在 Canvas 上繪製骨架的畫筆
 class PosePainter extends CustomPainter {
-  final List<List<double>> keypoints;
-  final Set<int> problemKeypoints;
-  final double scaleX;
-  final double scaleY;
-  final bool isFrontCamera;
+  final List<List<double>> keypoints; // 關鍵點列表 [[y, x, score], ...]
+  final Set<int> problemKeypoints; // 標記為錯誤的關鍵點 (將繪製成紅色)
+  final double scaleX; // X 軸縮放
+  final double scaleY; // Y 軸縮放
+  final bool isFrontCamera; // 是否為前鏡頭 (需要水平翻轉)
 
   PosePainter({
     required this.keypoints,
@@ -32,21 +33,25 @@ class PosePainter extends CustomPainter {
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
+    // MoveNet Thunder 關鍵點映射表 (參考用)
     // MoveNet Thunder Keypoints Map
     // ... (comments)
 
+    // 繪製關鍵點
     // Draw Keypoints
     for (int i = 0; i < keypoints.length; i++) {
       var kp = keypoints[i];
       double y = kp[0];
       double x = kp[1];
       
+      // 鏡像翻轉處理 (前鏡頭)
       if (isFrontCamera) {
         x = 1.0 - x;
       }
 
       double score = kp[2];
 
+      // 僅繪製信心分數大於 0.2 的關鍵點
       if (score > 0.2) {
         canvas.drawCircle(
           Offset(x * size.width, y * size.height),
@@ -56,6 +61,7 @@ class PosePainter extends CustomPainter {
       }
     }
 
+    // 繪製骨架連線
     // Draw Skeleton Connections
     final connections = [
       [0, 1], [0, 2], [1, 3], [2, 4], // Head
@@ -72,6 +78,7 @@ class PosePainter extends CustomPainter {
       var kp1 = keypoints[connection[0]];
       var kp2 = keypoints[connection[1]];
 
+      // 僅當兩端點信心分數皆足夠時才繪製連線
       if (kp1[2] > 0.2 && kp2[2] > 0.2) {
         double x1 = kp1[1];
         double x2 = kp2[1];
@@ -91,6 +98,7 @@ class PosePainter extends CustomPainter {
     
   }
 
+  // 決定是否需要重繪 (當關鍵點數據變更時)
   @override
   bool shouldRepaint(covariant PosePainter oldDelegate) {
     return oldDelegate.keypoints != keypoints || oldDelegate.problemKeypoints != problemKeypoints;

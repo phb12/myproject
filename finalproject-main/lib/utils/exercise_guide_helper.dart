@@ -1,4 +1,6 @@
+// 運動指導圖片輔助類別 (負責根據運動名稱取得對應的示範圖)
 class ExerciseGuideHelper {
+  // 取得示範圖片路徑
   static String? getGuideImage(String exerciseName) {
     if (exerciseName.contains('深蹲') || exerciseName.contains('Squat')) {
       return 'assets/images/guide_squat.png';

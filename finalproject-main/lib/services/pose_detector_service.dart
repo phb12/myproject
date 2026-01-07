@@ -20,13 +20,14 @@ import 'analyzers/curl_analyzer.dart';
 import 'analyzers/tricep_extension_analyzer.dart';
 import 'analyzers/crunch_analyzer.dart';
 
+// 傳送到 Isolate 的請求物件
 // Request object sent to Isolate
 class InferenceRequest {
   final int id;
   final Uint8List? yBytes;
   final Uint8List? uBytes;
   final Uint8List? vBytes;
-  final Uint8List? rgbBytes; // Added for file-based inference
+  final Uint8List? rgbBytes; // Added for file-based inference (新增檔案推論用)
   final int width;
   final int height;
   final int rotation;
@@ -34,7 +35,7 @@ class InferenceRequest {
   final int uvRowStride;
   final int uvPixelStride;
   final String exerciseName;
-  final bool isFile; // Flag to indicate file-based inference
+  final bool isFile; // Flag to indicate file-based inference (標記是否為檔案推論)
 
   InferenceRequest({
     required this.id,
@@ -53,6 +54,7 @@ class InferenceRequest {
   });
 }
 
+// 從 Isolate 接收的回應物件
 // Response object received from Isolate
 class InferenceResponse {
   final int id;
@@ -63,13 +65,15 @@ class InferenceResponse {
 }
 
 class PoseDetectorService {
-  Isolate? _isolate;
-  SendPort? _sendPort;
-  ReceivePort? _receivePort;
+  Isolate? _isolate; // 背景執行緒 (Isolate)
+  SendPort? _sendPort; // 用於發送訊息給 Isolate
+  ReceivePort? _receivePort; // 用於接收來自 Isolate 的訊息
   
+  // 廣播結果串流，供 UI 訂閱
   final StreamController<Map<String, dynamic>> _resultController = StreamController.broadcast();
   Stream<Map<String, dynamic>> get resultStream => _resultController.stream;
 
+  // 請求完成器映射表 (用於檔案推論的請求-回應配對)
   // Completer map for request-response matching (for file inference)
   final Map<int, Completer<Map<String, dynamic>?>> _pendingRequests = {};
 
@@ -83,6 +87,7 @@ class PoseDetectorService {
     _receivePort = ReceivePort();
     final RootIsolateToken rootIsolateToken = RootIsolateToken.instance!;
 
+    // 在主 Isolate 中載入模型資源 (因為 rootBundle 只能在主 Isolate 存取)
     // Load models in Main Isolate
     try {
       final movenetData = await rootBundle.load('assets/models/movenet_thunder.tflite');
@@ -137,9 +142,11 @@ class PoseDetectorService {
     });
   }
   
+  // 相容性別名，但 VideoAnalysisPage 應呼叫 initialize()
   // Alias for backward compatibility if needed, but VideoAnalysisPage should call initialize()
   Future<void> loadModels() => initialize();
 
+  // 處理相機幀 (Camera Frame)
   void processFrame(CameraImage image, int rotation, String exerciseName) {
     if (!_isIsolateReady || _isBusy || _sendPort == null) return;
 
@@ -192,6 +199,7 @@ class PoseDetectorService {
     _sendPort!.send(request);
   }
 
+  // 透過 Isolate 進行檔案推論的新方法
   // New method for File Inference via Isolate
   Future<Map<String, dynamic>?> detectFromFile(File imageFile, String exerciseName) async {
     if (!_isIsolateReady || _sendPort == null) {
@@ -255,6 +263,7 @@ class PoseDetectorService {
     _resultController.close();
   }
 
+  // --- Isolate 入口點 ---
   // --- Isolate Entry Point ---
   static void _isolateEntry(_IsolateInitData initData) async {
     BackgroundIsolateBinaryMessenger.ensureInitialized(initData.token);
@@ -269,6 +278,8 @@ class PoseDetectorService {
     try {
       final movenetOptions = InterpreterOptions()..threads = 4;
       
+      // NNAPI 和 GPU Delegates 在此版本中支援度不佳或效能不佳。
+      // 退回到最佳化的 CPU 執行。
       // NNAPI and GPU Delegates are not fully supported or performant in this version.
       // Reverting to optimized CPU execution.
 
@@ -369,6 +380,7 @@ class PoseDetectorService {
     }
   }
   
+  // 預處理 RGB 影像 (主要用於檔案)
   static Map<String, dynamic>? _preprocessRGB(InferenceRequest req) {
     try {
       if (req.rgbBytes == null) return null;
@@ -377,6 +389,7 @@ class PoseDetectorService {
       final int srcW = req.width;
       final int srcH = req.height;
       
+      // 計算縮放比例 (Letterboxing/保持長寬比留黑邊)
       // Calculate scaling (Letterboxing)
       double scale = min(targetSize / srcW, targetSize / srcH);
       int newW = (srcW * scale).round();
@@ -419,8 +432,10 @@ class PoseDetectorService {
   }
 
 
+  // --- Isolate 的靜態輔助方法 ---
   // --- Static Helpers for Isolate ---
   
+  // 預處理 YUV 影像 (主要用於相機串流)
   static Map<String, dynamic>? _preprocessYUV(InferenceRequest req) {
     try {
       if (req.yBytes == null || req.uBytes == null || req.vBytes == null) {
@@ -574,6 +589,7 @@ class PoseDetectorService {
     }
   }
 
+  // YUV 轉 RGB 輔助函式
   static int _yuv2r(int y, int u, int v) {
     return (y + (1.370705 * (v - 128))).clamp(0, 255).toInt();
   }
@@ -586,6 +602,7 @@ class PoseDetectorService {
     return (y + (1.732446 * (u - 128))).clamp(0, 255).toInt();
   }
 
+  // 執行分類模型推論
   static Map<String, dynamic> _runClassification(Interpreter interpreter, List<String> labels, List<List<double>> keypoints) {
     List<double> input = [];
     for (var kp in keypoints) {
@@ -616,10 +633,12 @@ class PoseDetectorService {
     };
   }
 
+  // 分析姿勢 (根據運動名稱選擇分析器)
   // Copied from original service, made static
   static Map<String, dynamic> _analyzePose(List<List<double>> keypoints, Map<String, dynamic> classification, String exerciseName) {
     ExerciseAnalyzer? analyzer;
     
+    // 根據運動名稱選擇分析器 (使用字串匹配)
     // Select Analyzer based on exercise name
     // Using string matching as per original logic
     if (exerciseName.contains('深蹲')) {

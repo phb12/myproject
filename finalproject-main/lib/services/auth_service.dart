@@ -4,6 +4,7 @@
 import 'package:firebase_auth/firebase_auth.dart' as fbAuth;
 import 'package:flutter/foundation.dart';
 
+// 認證服務 (負責與 Firebase Authentication 互動)
 class AuthService {
   static final AuthService instance = AuthService._internal();
   AuthService._internal();
@@ -11,6 +12,7 @@ class AuthService {
   final fbAuth.FirebaseAuth _auth = fbAuth.FirebaseAuth.instance;
 
   // 【修改】使用 fbAuth.User 來明確指出這是 Firebase 的 User
+  // 獲取當前登入的使用者
   fbAuth.User? get currentUser => _auth.currentUser;
 
   // 註冊

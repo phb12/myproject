@@ -12,6 +12,7 @@ import '../models/exercise_model.dart';
 import '../models/plan_item_model.dart'; 
 import '../services/firestore_service.dart'; 
 
+// 資料庫輔助類別 (負責 SQLite 的所有操作)
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
   DatabaseHelper._internal();
@@ -19,6 +20,7 @@ class DatabaseHelper {
 
   Future<Database> get db async => _db ??= await initDB();
 
+  // 初始化資料庫
   Future<Database> initDB() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'data.db');
@@ -30,6 +32,7 @@ class DatabaseHelper {
     );
   }
 
+  // 建立資料表 (當資料庫檔案不存在時呼叫)
   Future<void> _createTables(Database db, int version) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS users (
@@ -87,6 +90,7 @@ class DatabaseHelper {
     ''');
   }
 
+  // 資料庫升級腳本 (當版本號增加時呼叫)
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 3) {
       try { await db.execute('ALTER TABLE workout_logs ADD COLUMN bodyPart TEXT'); } catch (_) {}
@@ -174,6 +178,7 @@ class DatabaseHelper {
     return result.isNotEmpty;
   }
 
+  // 透過帳號獲取使用者資訊
   Future<User?> getUserByAccount(String account) async {
     final db = await instance.db;
     final List<Map<String, dynamic>> maps = await db.query('users', where: 'account = ?', whereArgs: [account], limit: 1);
@@ -183,6 +188,7 @@ class DatabaseHelper {
     return null;
   } 
 
+  // 更新使用者資訊
   Future<int> updateUser(User user) async {
     final db = await instance.db;
     return await db.update('users', user.toMap(), where: 'id = ?', whereArgs: [user.id]);
@@ -194,6 +200,7 @@ class DatabaseHelper {
     return await db.insert('custom_exercises', exercise.toMap());
   }
 
+  // 根據部位獲取自定義動作
   Future<List<CustomExercise>> getCustomExercisesForBodyPart(BodyPart bodyPart) async {
     final db = await instance.db;
     final List<Map<String, dynamic>> maps = await db.query('custom_exercises', where: 'bodyPart = ?', whereArgs: [bodyPart.index]);
@@ -206,6 +213,7 @@ class DatabaseHelper {
   }
 
   // --- WorkoutLog 相關方法 ---
+  // 新增運動紀錄
   Future<int> insertWorkoutLog(WorkoutLog log, {bool syncToCloud = true}) async {
     final db = await instance.db;
     final id = await db.insert('workout_logs', log.toMap());
@@ -218,6 +226,7 @@ class DatabaseHelper {
     return id;
   }
 
+  // 獲取所有運動紀錄 (依時間倒序)
   Future<List<WorkoutLog>> getWorkoutLogs(String account) async {
     final db = await instance.db;
     final List<Map<String, dynamic>> maps = await db.query(
@@ -235,6 +244,7 @@ class DatabaseHelper {
   }
 
   // --- WeightLog 相關方法 ---
+  // 新增體重紀錄 (每日一筆，若有舊資料則覆蓋)
   Future<void> insertWeightLog(WeightLog log, {bool syncToCloud = true}) async {
     final db = await instance.db;
     final dateStr = log.createdAt.toIso8601String().substring(0, 10);
@@ -250,6 +260,7 @@ class DatabaseHelper {
     }
   }
 
+  // 刪除指定日期的體重紀錄
   Future<void> deleteWeightLogsForDate(DateTime date, String account) async {
       final db = await instance.db;
       final dateStr = date.toIso8601String().substring(0, 10);
@@ -260,6 +271,7 @@ class DatabaseHelper {
       );
   }
 
+  // 獲取所有體重紀錄
   Future<List<WeightLog>> getWeightLogs(String account) async {
     final db = await instance.db;
     final List<Map<String, dynamic>> maps = await db.query(
@@ -277,6 +289,7 @@ class DatabaseHelper {
     await db.insert('set_logs', log.toMap());
   }
 
+  // 獲取特定運動紀錄的所有組數資料
   Future<List<SetLog>> getSetLogsForWorkout(int workoutLogId) async {
     final db = await instance.db;
     final List<Map<String, dynamic>> maps = await db.query('set_logs', where: 'workoutLogId = ?', whereArgs: [workoutLogId], orderBy: 'setNumber ASC');
@@ -284,11 +297,13 @@ class DatabaseHelper {
   }
 
   // --- PlanItem 相關方法 ---
+  // 新增計畫項目
   Future<int> insertPlanItem(PlanItem item) async {
     final db = await instance.db;
     return await db.insert('plan_items', item.toMap());
   }
 
+  // 獲取指定星期的計畫項目
   Future<List<PlanItem>> getPlanItemsForDay(int dayOfWeek) async {
     final db = await instance.db;
     final List<Map<String, dynamic>> maps = await db.query(
